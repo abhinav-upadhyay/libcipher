@@ -11,7 +11,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-#define HTTP_PORT 80
+#define HTTP_PORT "80"
 #define MAX_GET_CMD_LEN 1024
 #define BUFFER_SIZE 255
 static char get_command[MAX_GET_CMD_LEN];
@@ -57,9 +57,14 @@ parse_url(char *uri, char **host, char **path)
  * @return int 
  */
 static int
-http_get(int client_connection, const char *path, const char *host)
+http_get(int client_connection, const char *path,
+        const char *host, const char *proxy_host,
+        const char *proxy_user, const char *proxy_pass)
 {
-    sprintf(get_command, "GET %s HTTP/1.1\r\n", path);
+    if (proxy_host)
+        sprintf(get_command, "GET http://%s/%s HTTP 1.1\r\n", host, path);
+    else
+        sprintf(get_command, "GET %s HTTP/1.1\r\n", path);
     if (send(client_connection, get_command, strlen(get_command), 0) == -1) {
         perror("Error sending GET command");
         return -1;
@@ -88,22 +93,63 @@ display_result(int connection)
     printf("\n");
 }
 
+static int
+parse_proxy_param(char *proxy_spec, char **proxy_host, char **proxy_port,
+    char **proxy_user, char **proxy_pass)
+{  
+    if (!strncmp("http://", proxy_spec, 7))
+        proxy_spec += 7;
+    
+    char *login_sep =  strchr(proxy_spec, '@');
+    if (login_sep) {
+        char *colon_sep = strchr(proxy_spec, ':');
+        if (!colon_sep || colon_sep > login_sep) {
+            fprintf(stderr, "Invalid proxy specification\n");
+            return 0;
+        }
+
+        *colon_sep = 0;
+        *proxy_user = proxy_spec;
+        *login_sep = 0;
+        *proxy_pass = colon_sep + 1;
+        proxy_spec = login_sep + 1;
+    }
+
+    char *trailer_sep = strchr(proxy_spec, '/');
+    if (trailer_sep)
+        *trailer_sep = 0;
+    
+    char *colon_sep = strchr(proxy_spec, ':');
+    if (colon_sep) {
+        *colon_sep = 0;
+        *proxy_port = colon_sep + 1;
+    }
+    *proxy_host = proxy_spec;
+    return 1;
+}
+
 
 
 int
 main(int argc, char **argv)
 {
-    char *host, *path;
-    if (argc < 2) {
-        fprintf(stderr, "Usage: %s <url>\n", argv[0]);
+    char *host, *path = NULL;
+    char *proxy_host, *proxy_user, *proxy_pass, *proxy_port = NULL;
+    int ind = 1;
+
+    if (argc < 2)
+        errx(1,  "Usage: %s [-p http://[usernae:password@]proxy-host:proxy-port] <url>\n", argv[0]);
+
+    if (!strcmp("-p", argv[ind])) {
+        if (!parse_proxy_param(argv[++ind], &proxy_host, &proxy_port, &proxy_user, &proxy_pass))
+            errx(2, "invalid proxy parameter %s", argv[2]);
+    }
+
+
+    if (parse_url(argv[++ind], &host, &path) < 0) {
         return 1;
     }
 
-    if (parse_url(argv[1], &host, &path) < 0) {
-        return 1;
-    }
-
-    printf("Connecting to host: %s\n", host);
 
     struct addrinfo hints;
     struct addrinfo *res, *res0;
@@ -112,7 +158,16 @@ main(int argc, char **argv)
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    error = getaddrinfo(host, "http", &hints, &res0);
+    hints.ai_flags = AI_NUMERICSERV;
+
+    if (proxy_host) {
+        printf("Connecting to host: %s\n", proxy_host);
+        error = getaddrinfo(proxy_host, "http", &hints, &res0);
+    } else {
+        printf("Connecting to host: %s\n", host);
+        error = getaddrinfo(host, proxy_host? proxy_port: "http", &hints, &res0);
+    }
+
     if (error)
         errx(EXIT_FAILURE, "%s", gai_strerror(error));
     
@@ -134,7 +189,7 @@ main(int argc, char **argv)
         errx(EXIT_FAILURE, "Could not connect to host");
     }
 
-    http_get(client_connection, path, host);
+    http_get(client_connection, path, host, proxy_host, proxy_user, proxy_pass);
     display_result(client_connection);
     printf("Shutting down\n");
     if (close(client_connection) == -1) {
