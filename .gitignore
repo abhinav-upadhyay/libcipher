@@ -1,4 +1,4 @@
-*.0
+*.o
 http
 .vscode/*
 *.swp
