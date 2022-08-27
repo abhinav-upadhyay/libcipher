@@ -11,6 +11,8 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
+#include "base64.h"
+
 #define HTTP_PORT "80"
 #define MAX_GET_CMD_LEN 1024
 #define BUFFER_SIZE 255
@@ -61,6 +63,7 @@ http_get(int client_connection, const char *path,
         const char *host, const char *proxy_host,
         const char *proxy_user, const char *proxy_pass)
 {
+
     if (proxy_host)
         sprintf(get_command, "GET http://%s/%s HTTP 1.1\r\n", host, path);
     else
@@ -69,11 +72,30 @@ http_get(int client_connection, const char *path,
         perror("Error sending GET command");
         return -1;
     }
+
     sprintf(get_command, "Host: %s\r\n", host);
     if (send(client_connection, get_command, strlen(get_command), 0) == -1) {
         perror("Error sending host header");
         return -1;
     }
+    
+    if (proxy_user) {
+        size_t credentials_len = strlen(proxy_user) + strlen(proxy_pass) + 1;
+        char * proxy_creds = malloc(credentials_len);
+        if (proxy_creds == NULL)
+            err(EXIT_FAILURE, "malloc failed");
+        sprintf(proxy_creds, "%s:%s", proxy_user, proxy_pass);
+        char *auth_string = base64_encode(proxy_creds, credentials_len);
+        sprintf(get_command, "Proxy-Authorization: BASIC %s\r\n", auth_string);
+        if (send(client_connection, get_command, strlen(get_command), 0) == -1) {
+            free(proxy_creds);
+            free(auth_string);
+            return -1;
+        }
+        free(proxy_creds);
+        free(auth_string);
+    }
+
     sprintf(get_command, "Connection: close\r\n\r\n");
     if (send(client_connection, get_command, strlen(get_command), 0) == -1) {
         perror("Error sending connection header");
