@@ -78,7 +78,7 @@ http_get(int client_connection, const char *path,
         perror("Error sending host header");
         return -1;
     }
-    
+
     if (proxy_user) {
         size_t credentials_len = strlen(proxy_user) + strlen(proxy_pass) + 1;
         char * proxy_creds = malloc(credentials_len);
@@ -168,7 +168,7 @@ main(int argc, char **argv)
     }
 
 
-    if (parse_url(argv[++ind], &host, &path) < 0) {
+    if (parse_url(argv[ind], &host, &path) < 0) {
         return 1;
     }
 
@@ -187,7 +187,7 @@ main(int argc, char **argv)
         error = getaddrinfo(proxy_host, "http", &hints, &res0);
     } else {
         printf("Connecting to host: %s\n", host);
-        error = getaddrinfo(host, proxy_host? proxy_port: "http", &hints, &res0);
+        error = getaddrinfo(host, proxy_host? proxy_port: HTTP_PORT, &hints, &res0);
     }
 
     if (error)
